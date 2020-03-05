@@ -16,6 +16,8 @@
 // 3. This notice may not be removed or altered from any source distribution.
 //
 
+#include <OpenImageIO/imageio.h>
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
@@ -804,6 +806,53 @@ int nvgCreateImage(NVGcontext* ctx, const char* filename, int imageFlags)
 	return image;
 }
 
+int nvgCreateFloatImage(NVGcontext* ctx, const char* filename, int imageFlags)
+{
+	int w, h, channels, image;
+	
+	auto in = OIIO::ImageInput::create(filename);
+	
+
+	if (!in)
+	{
+		std::cerr << "Could not create image input." << std::endl;
+		exit(1);
+	}
+
+	OIIO::ImageSpec spec;
+	in->open(filename, spec);
+
+	std::string error = in->geterror();
+	if (!error.empty())
+	{
+		std::cerr << "Error loading image " << error << std::endl;
+		exit(1);
+	}
+
+	
+	w = spec.width;
+	h = spec.height;
+	channels = spec.nchannels;
+
+	float* pixels = new float[w * h * channels];
+	if (!in->read_image(OIIO::TypeDesc::FLOAT, pixels))
+	{
+		std::cerr << "Could not read pixels from " << filename
+			<< ", error = " << in->geterror() << std::endl;
+		return 0;
+	}
+	if (!in->close())
+	{
+		std::cerr << "Error closing " << filename
+			<< ", error = " << in->geterror() << std::endl;
+		return 0;
+	}
+	//printf("%s\n", filename);
+	image = nvgCreateFloatImageRGBA(ctx, w, h, imageFlags, pixels, channels);
+	printf("break %d\n", image);
+	return image;
+}
+
 int nvgCreateImageMem(NVGcontext* ctx, int imageFlags, unsigned char* data, int ndata)
 {
 	int w, h, n, image;
@@ -822,11 +871,23 @@ int nvgCreateImageRGBA(NVGcontext* ctx, int w, int h, int imageFlags, const unsi
 	return ctx->params.renderCreateTexture(ctx->params.userPtr, NVG_TEXTURE_RGBA, w, h, imageFlags, data);
 }
 
+int nvgCreateFloatImageRGBA(NVGcontext* ctx, int w, int h, int imageFlags, float* data, int components)
+{
+	return ctx->params.renderCreateFloatTexture(ctx->params.userPtr, NVG_TEXTURE_RGBA, w, h, imageFlags, data, components);
+}
+
 void nvgUpdateImage(NVGcontext* ctx, int image, const unsigned char* data)
 {
 	int w, h;
 	ctx->params.renderGetTextureSize(ctx->params.userPtr, image, &w, &h);
 	ctx->params.renderUpdateTexture(ctx->params.userPtr, image, 0,0, w,h, data);
+}
+
+void nvgUpdateFloatImage(NVGcontext* ctx, int image, float* data)
+{
+	int w, h;
+	ctx->params.renderGetTextureSize(ctx->params.userPtr, image, &w, &h);
+	ctx->params.renderUpdateFloatTexture(ctx->params.userPtr, image, 0, 0, w, h, data);
 }
 
 void nvgImageSize(NVGcontext* ctx, int image, int* w, int* h)

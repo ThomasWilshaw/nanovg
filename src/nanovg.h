@@ -388,6 +388,19 @@ void nvgImageSize(NVGcontext* ctx, int image, int* w, int* h);
 // Deletes created image.
 void nvgDeleteImage(NVGcontext* ctx, int image);
 
+/*Custom float image buffer support */
+
+// Creates image by loading it from the disk from specified file name.
+// Returns handle to the image.
+int nvgCreateFloatImage(NVGcontext* ctx, const char* filename, int imageFlags);
+
+// Creates image from specified image data.
+// Returns handle to the image.
+int nvgCreateFloatImageRGBA(NVGcontext* ctx, int w, int h, int imageFlags, float* data, int components);
+
+// Updates image data specified by image handle.
+void nvgUpdateFloatImage(NVGcontext* ctx, int image, float* data);
+
 //
 // Paints
 //
@@ -662,8 +675,10 @@ struct NVGparams {
 	int edgeAntiAlias;
 	int (*renderCreate)(void* uptr);
 	int (*renderCreateTexture)(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data);
+	int (*renderCreateFloatTexture)(void* uptr, int type, int w, int h, int imageFlags, float* data, int componenets);//float pipeline
 	int (*renderDeleteTexture)(void* uptr, int image);
 	int (*renderUpdateTexture)(void* uptr, int image, int x, int y, int w, int h, const unsigned char* data);
+	int (*renderUpdateFloatTexture)(void* uptr, int image, int x, int y, int w, int h, float* data);//Float pipeline
 	int (*renderGetTextureSize)(void* uptr, int image, int* w, int* h);
 	void (*renderViewport)(void* uptr, float width, float height, float devicePixelRatio);
 	void (*renderCancel)(void* uptr);

@@ -707,6 +707,103 @@ static int glnvg__renderCreate(void* uptr)
 	return 1;
 }
 
+static int glnvg__renderCreateFloatTexture(void* uptr, int type, int w, int h, int imageFlags, float* data, int components)
+{
+	GLNVGcontext* gl = (GLNVGcontext*)uptr;
+	GLNVGtexture* tex = glnvg__allocTexture(gl);
+	
+	if (tex == NULL) return 0;
+
+	glGenTextures(1, &tex->tex);
+	tex->width = w;
+	tex->height = h;
+	tex->type = type;
+	tex->flags = imageFlags;
+	glnvg__bindTexture(gl, tex->tex);
+
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+#ifndef NANOVG_GLES2
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, tex->width);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+#endif
+	
+	GLenum format = 0;
+	if (components == 4) format = GL_RGBA;
+	else if (components == 3) format = GL_RGB;
+	else
+	{
+		printf("Cannot load image with %d components.\n", components);
+		exit(1);
+	}
+
+	if (type == NVG_TEXTURE_RGBA)
+	{
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F_ARB, w, h, 0, format, GL_FLOAT, data);
+	}
+	else {
+#if defined(NANOVG_GLES2) || defined (NANOVG_GL2)
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, w, h, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
+#elif defined(NANOVG_GLES3)
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, data);
+#else
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_FLOAT, data);
+#endif
+	}
+	if (imageFlags & NVG_IMAGE_GENERATE_MIPMAPS) {
+		if (imageFlags & NVG_IMAGE_NEAREST) {
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+		}
+		else {
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		}
+	}
+	else {
+		if (imageFlags & NVG_IMAGE_NEAREST) {
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		}
+		else {
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		}
+	}
+
+	if (imageFlags & NVG_IMAGE_NEAREST) {
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	}
+	else {
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	}
+
+	if (imageFlags & NVG_IMAGE_REPEATX)
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	else
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+
+	if (imageFlags & NVG_IMAGE_REPEATY)
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	else
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+#ifndef NANOVG_GLES2
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+#endif
+
+	// The new way to build mipmaps on GLES and GL3
+#if !defined(NANOVG_GL2)
+	if (imageFlags & NVG_IMAGE_GENERATE_MIPMAPS) {
+		glGenerateMipmap(GL_TEXTURE_2D);
+	}
+#endif
+
+	glnvg__checkError(gl, "create tex");
+	glnvg__bindTexture(gl, 0);
+
+	return tex->id;
+}
+
 static int glnvg__renderCreateTexture(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data)
 {
 	GLNVGcontext* gl = (GLNVGcontext*)uptr;
@@ -817,6 +914,51 @@ static int glnvg__renderDeleteTexture(void* uptr, int image)
 {
 	GLNVGcontext* gl = (GLNVGcontext*)uptr;
 	return glnvg__deleteTexture(gl, image);
+}
+
+static int glnvg__renderUpdateFloatTexture(void* uptr, int image, int x, int y, int w, int h, float* data)
+{
+	GLNVGcontext* gl = (GLNVGcontext*)uptr;
+	GLNVGtexture* tex = glnvg__findTexture(gl, image);
+
+	if (tex == NULL) return 0;
+	glnvg__bindTexture(gl, tex->tex);
+
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+#ifndef NANOVG_GLES2
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, tex->width);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, x);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, y);
+#else
+	// No support for all of skip, need to update a whole row at a time.
+	if (tex->type == NVG_TEXTURE_RGBA)
+		data += y * tex->width * 4;
+	else
+		data += y * tex->width;
+	x = 0;
+	w = tex->width;
+#endif
+
+	if (tex->type == NVG_TEXTURE_RGBA)
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RGBA, GL_FLOAT, data);
+	else
+#if defined(NANOVG_GLES2) || defined(NANOVG_GL2)
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
+#else
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RED, GL_FLOAT, data);
+#endif
+
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+#ifndef NANOVG_GLES2
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+#endif
+
+	glnvg__bindTexture(gl, 0);
+
+	return 1;
 }
 
 static int glnvg__renderUpdateTexture(void* uptr, int image, int x, int y, int w, int h, const unsigned char* data)
@@ -1568,8 +1710,10 @@ NVGcontext* nvgCreateGLES3(int flags)
 	memset(&params, 0, sizeof(params));
 	params.renderCreate = glnvg__renderCreate;
 	params.renderCreateTexture = glnvg__renderCreateTexture;
+	params.renderCreateFloatTexture = glnvg__renderCreateFloatTexture;
 	params.renderDeleteTexture = glnvg__renderDeleteTexture;
 	params.renderUpdateTexture = glnvg__renderUpdateTexture;
+	params.renderUpdateFloatTexture = glnvg__renderUpdateFloatTexture;
 	params.renderGetTextureSize = glnvg__renderGetTextureSize;
 	params.renderViewport = glnvg__renderViewport;
 	params.renderCancel = glnvg__renderCancel;
